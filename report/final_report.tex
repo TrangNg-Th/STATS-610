@@ -1,0 +1,179 @@
+\documentclass[11pt, letterpaper]{article}
+
+% =============================================================================
+% Packages
+% =============================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{setspace}
+\usepackage{float}
+
+% Set line spacing
+\onehalfspacing
+
+% =============================================================================
+% Title
+% =============================================================================
+\title{STATS 610 Final Project:\\
+Replication of [Paper Title]}
+\author{[Student Name]}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+% =============================================================================
+% Abstract
+% =============================================================================
+\begin{abstract}
+This report presents a replication of key statistical results from [Paper Citation]. Using the supplementary data and methods described in the original paper, we reproduce the main findings and provide a critical analysis of the methodology. Our replication confirms/extends [brief summary of findings].
+\end{abstract}
+
+% =============================================================================
+% 1. Introduction
+% =============================================================================
+\section{Introduction}
+
+[Introduce the paper being replicated. Explain the research question, why this paper was selected, and the importance of the statistical methods used.]
+
+The original paper by [Author(s)] investigates [research question]. The key contributions include:
+\begin{itemize}
+    \item [Contribution 1]
+    \item [Contribution 2]
+    \item [Contribution 3]
+\end{itemize}
+
+% =============================================================================
+% 2. Data Description
+% =============================================================================
+\section{Data Description}
+
+[Describe the data from the paper's supplementary materials.]
+
+\subsection{Data Source}
+
+The data for this analysis comes from [source description]. The dataset includes $n = [N]$ observations with the following variables:
+
+\begin{itemize}
+    \item \textbf{Variable 1}: [Description]
+    \item \textbf{Variable 2}: [Description]
+    \item \textbf{Variable 3}: [Description]
+\end{itemize}
+
+\subsection{Summary Statistics}
+
+% Add table with summary statistics
+% \begin{table}[H]
+% \centering
+% \caption{Summary Statistics}
+% \begin{tabular}{lcccc}
+% \toprule
+% Variable & Mean & SD & Min & Max \\
+% \midrule
+% Variable 1 & & & & \\
+% Variable 2 & & & & \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
+
+% =============================================================================
+% 3. Methods
+% =============================================================================
+\section{Methods}
+
+[Describe the statistical methods used in the original paper that you are replicating.]
+
+\subsection{Statistical Approach}
+
+The original paper employs [method name] to address [research question]. The key assumptions include:
+\begin{enumerate}
+    \item [Assumption 1]
+    \item [Assumption 2]
+\end{enumerate}
+
+\subsection{Model Specification}
+
+% Add mathematical model specification
+% \begin{equation}
+% y_i = \beta_0 + \beta_1 x_{1i} + \epsilon_i, \quad \epsilon_i \sim N(0, \sigma^2)
+% \end{equation}
+
+% =============================================================================
+% 4. Results
+% =============================================================================
+\section{Results}
+
+[Present the replicated results and compare them with the original paper's findings.]
+
+\subsection{Main Findings}
+
+% Add figure from R analysis
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=0.8\textwidth]{../figures/figure1.png}
+% \caption{[Figure description]}
+% \label{fig:main}
+% \end{figure}
+
+\subsection{Comparison with Original Results}
+
+% Add comparison table
+% \begin{table}[H]
+% \centering
+% \caption{Comparison of Results}
+% \begin{tabular}{lcc}
+% \toprule
+% Parameter & Original Paper & Our Replication \\
+% \midrule
+% $\beta_1$ & & \\
+% $\beta_2$ & & \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
+
+% =============================================================================
+% 5. Discussion
+% =============================================================================
+\section{Discussion}
+
+[Discuss the implications of your replication results. Address any discrepancies with the original findings and possible explanations.]
+
+\subsection{Interpretation}
+
+[Interpret the replicated results in the context of the original research question.]
+
+\subsection{Limitations}
+
+[Discuss any limitations of the replication effort.]
+
+% =============================================================================
+% 6. Conclusion
+% =============================================================================
+\section{Conclusion}
+
+[Summarize the replication effort and main conclusions.]
+
+This replication study has [confirmed/extended/challenged] the original findings of [Author(s)]. The key takeaways include:
+\begin{itemize}
+    \item [Takeaway 1]
+    \item [Takeaway 2]
+\end{itemize}
+
+% =============================================================================
+% References
+% =============================================================================
+\bibliographystyle{apalike}
+% \bibliography{references}  % Uncomment when you have a references.bib file
+
+\begin{thebibliography}{99}
+\bibitem{original} [Author(s)]. [Year]. [Paper Title]. \textit{[Journal Name]}, Volume(Issue), pages.
+\end{thebibliography}
+
+\end{document}
