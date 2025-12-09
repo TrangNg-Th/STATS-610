@@ -162,7 +162,7 @@ simulate_outbreak = function(q_c, q_h, D_obs) {
 
     # Sample with replacement according to p_js the number of infected individuals for n_households_s households
     samples = sample(j_range, size = n_households_s, replace = TRUE, prob = p_js)
-    print("Successful sampling j_range")
+  
     
     # Count how many households ended up with j infections (from 0 to max_j)
     counts = table(factor(samples, levels = 0:max_j))
@@ -332,6 +332,11 @@ abc_smc_influenza = function(D0,
       model_prev     = models_mat[, t - 1] # vector of length N
       w_prev         = weights_mat[, t - 1] # vector of length N
 
+      # In case numerical issues give you total weight:
+      if (sum(w_prev) <= 0) {
+        next
+      }
+
       # even if we have different number of parameters per model,
       # we store all particles in a matrix of size N x max_par, padding with NAs 
       theta_mat_t = matrix(NA_real_, nrow = N_particles, ncol = max_par)
@@ -363,9 +368,18 @@ abc_smc_influenza = function(D0,
 
           # 2/ Work only with previous particles of this model
           idx_m        = which(model_prev == m_star)
+
+          if (length(idx_m) == 0) {
+            next  # go back to the start of repeat{}
+          }
+
           d_m          = n_params_by_model[as.character(m_star)]
           theta_prev_m = theta_prev_mat[idx_m, 1:d_m, drop = FALSE]
           w_prev_m     = w_prev[idx_m]
+
+          if (sum(w_prev_m) <= 0 || any(!is.finite(w_prev_m))) {
+            next
+          }
 
           # 3/ Choose which theta to perturb within this model
           j_idx        = sample(seq_along(idx_m), size = 1, prob = w_prev_m / sum(w_prev_m))
@@ -379,7 +393,7 @@ abc_smc_influenza = function(D0,
 
           # Simulate dataset and compute distance
           D_star = simulate_data(theta_st, m_star, D0, n_params_by_model)
-          print("Here!")
+          # print("Here!")
 
 
           # print("Data simulated.")
@@ -478,9 +492,11 @@ res_suppl3 = abc_smc_influenza(
 
 
 # -------------------------------------------------------------------
-# 8. Plots 
+# 9. Plots 
 #    (Figures 3a and 3b)
+
 # -------------------------------------------------------------------
+# Supplementary table 2
 # Count the number of types of models in total
 df_count = as.data.frame(table(res_suppl2$models))
 
@@ -536,3 +552,53 @@ fig3b = ggplot() +
        y = "q_c") +
    theme(aspect.ratio=1)
 print(fig3b)
+
+# -------------------------------------------------------------------
+# Supplementary table 3
+
+t_last3 = length(res_suppl3$epsilon)
+
+
+# Count the number of types of models in total
+df_count3 = as.data.frame(table(res_suppl3$models))
+# Normalise the counts to get frequencies
+df_count3$Var1 = paste("Model", df_count3$Var1)
+df_count3$Freq = df_count3$Freq / sum(df_count3$Freq)
+# Rename columns
+colnames(df_count3) = c("Model", "P(model | data)")
+# Recreate figure 3.b using frequency count
+fig3c = ggplot(data = df_count3, aes(x = Model, y = `P(model | data)`, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Figure 3.c: Model Selection Results for Influenza B - 1975-1976 & 1978-1979",
+       x = "Model",
+       y = "Approximation of P(model | data)") +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.1)) +
+  scale_fill_manual(values = c("Model 1" = "lightgreen", "Model 2" = "orange")) +
+  theme_minimal() +
+  theme(legend.position = "none")
+print(fig3c)
+
+# Extract particles for Model 2 where we have 3 parameters
+theta_last3  = res_suppl3$thetas[[t_last3]]          # N x 3
+model_last3  = res_suppl3$models[, t_last3]          # length
+weight_last3 = res_suppl3$weights[, t_last3]         # length N
+# keep only model 2 (3-parameter model)
+idx_m2_3  = which(model_last3 == 2)
+theta_m2_3  = theta_last3[idx_m2_3, 1:3, drop = FALSE]
+qc_1_3 = theta_m2_3[, 1]   # q_c1
+qc_2_3 = theta_m2_3[, 2]   # q_c2
+qh_3   = theta_m2_3[, 3]   # q_h
+df_params_model2_3 = data.frame(qc_1_3, qc_2_3, qh_3)
+fig3d = ggplot() +
+  geom_point(data = df_params_model2_3,
+             aes(x = qh_3, y = qc_1_3),
+             alpha = 0.5, colour = "purple") +
+  geom_point(data = df_params_model2_3,
+             aes(x = qh_3, y = qc_2_3),
+             alpha = 0.5, colour = "brown") +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(title = "Figure 3.d: Pairwise Scatter of Parameters, Model 2 (population 7)",
+       x = "q_h",
+       y = "q_c") +
+   theme(aspect.ratio=1)
+print(fig3d)
