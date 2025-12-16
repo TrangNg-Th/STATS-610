@@ -685,3 +685,5 @@ For the influenza A data (Table 2 in the supplement), my results match the main 
 For the influenza B/A data (Table 3 in the supplement), my results didn't fully match the published Figure 3c. The original study found no clear winner between two models. But my version shows a stronger preference for model 2 over the other. I think this difference came from my setup (different random seeds, some clipping values of the uniformdistribution). These choices can affect the final model comparisons, especially with small datasets like Table 3.
 
 Even though my Figure 3c results didn't match perfectly, this work shows that the ABC-SMC method works well for comparing models when we can only run simulations and can't calculate probabilities directly. It also shows that AB-SMC results depend heavily on setup choices (especially the tolerance levels, the choice of priors and the disease models themselves). I think it would be beneficial next to explore more different tolerance settings more carefully and run the analysis multiple times with different random starting points. 
+
+The result can be found in the link : https://github.com/TrangNg-Th/STATS-610
