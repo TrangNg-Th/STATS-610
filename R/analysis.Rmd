@@ -6,6 +6,12 @@ output:
   pdf_document:
     toc: true
     toc_depth: 4
+    number_sections: true
+
+  html_document:
+    toc: true
+    toc_depth: 4
+    number_sections: true
 ---
 
 # 1. Context : 
@@ -14,6 +20,9 @@ The goal is to implement the simulation-based model selection approach described
 
 The scenario considered is about the spread of different strains of the influenza virus.
 The data used in the paper comes from influenza A (H3N2) outbreaks that occurred in 1977-1978 and 1980-1981 in Tecomseh, Michigan, (Supplementary table 2) and a second dataset of an influenza B infection outbreak in 1975-1976 and influenza A (H1N1) infection outbreak in 1978-1979 in Seattle, Washington (Supplementary table 3).
+
+**Notes**: All the codes in this section can be found in the file codes.R
+
 
 # 2. Questions:
 In the paper, the authors focused on two main questions regarding the influenza outbreaks.
@@ -47,12 +56,34 @@ In this paper, they considered two models :
   $$ d(D_0, D^*) = \frac{1}{2} || D_1 - D^*(q_{h1}, q_{c1}) ||_F  + \frac{1}{2} || D_2 - D^*(q_{h2}, q_{c2}) ||_F $$
   $D_0 = D_1 \cup D_2$ is the observed data (the combination of the two outbreaks $D_1$ and $D_2$) and $D^*$ is the simulated data from the model. The Frobenius norm is used to measure the difference between the two datasets.
   
-```{r parameters-setup-constants}
+```{r parameters-setup-constants, include=FALSE}
+# Parameters for suppl 2 - t2 for table 2
+tolerance.sched.t2 = c(100, 80, 50, 30, 20, 15, 13, 12)
+tolerance.sched.t3 = c(40, 20, 15, 10, 8, 6, 5)
+N = 100 # Number of particles
+Bt = 1 # Number of replicates for each particle
+
+# Number of candidate models M = 2 
+# ------------------------------------
+## For table 2 : we compared between 2 vs 4 parameters
+## For table 3, we compared between 2 vs 3 parameters
+M = 2 # Number of models
+
+# Model 1 = 2 parameters (shared qc, qh)
+# Model 2 = 4 parameters (qc1, qh1, qc2, qh2)
+# Model 3 = 3 parameters (qc1, qc2, qh)
+n_params_by_model_t2 = c("1" = 2, "2" = 4)
+n_params_by_model_t3 = c("1" = 2, "2" = 3)
+
+# Number of populations T for table 2 and table 3
+T_t2 = length(tolerance.sched.t2)
+T_t3 = length(tolerance.sched.t3)
 
 ```
 
 ### Data
-```{r data, include=FALSE }
+In this part, I will load the data from Supplementary table 2 and table 3 as data frames in R.
+```{r data, include=TRUE}
 ## Row names for the data frames
 nb_infecteds = c("0_infected", "1_infected", "2_infected", "3_infected", "4_infected", "5_infected")
 
@@ -74,7 +105,6 @@ suppl2_8081 = data.frame(
     household_5 = c(9, 5, 3, 1, 0, 1))
 row.names(suppl2_8081) = nb_infecteds
 
-
 ## Influenza B from 1975-1976
 suppl3_7576 = data.frame(
     household_1 = c(9, 1, 0, 0, 0 , 0),
@@ -90,7 +120,9 @@ suppl3_7879 = data.frame(
     household_3 = c(4, 4, 4, 5, 0, 0))
 row.names(suppl3_7879) = nb_infecteds
 
-
+# Look at the data of table 2
+suppl2_7778
+suppl2_8081
 ```
 
 
@@ -121,6 +153,7 @@ w_js = function(j, s, q_c, q_h) {
         return (comb * w_jj * (q_c * q_h^j)^(s - j))
     }
 }
+# As the paper described the function w_js recursively, I implemented it recursively here.
 
 
 # Distance function between observed data D_0 and simulated data D_star
@@ -137,7 +170,6 @@ distance = function(D_0, D_star) {
     return (0.5 * frob_norm1 + 0.5 * frob_norm2)
 }
 
-
 ```
 
 ### Outbreak simulation functions:
@@ -151,30 +183,97 @@ In the next part, I will implement the outbreak simulation functions based on th
 Then I will simulate the outbreaks under different models and parameter settings.
 
 ```{r simulate-outbreak, include=TRUE}
+# Simulate one outbreak given (q_c, q_h) and the observed table for that outbreak
+simulate_outbreak = function(q_c, q_h, D_obs) {
+  
+  D_obs = as.matrix(D_obs)
+  n_sizes = ncol(D_obs)              # total number of susceptibles per household (columns)
+  max_j  = nrow(D_obs) - 1           # total number of infected individuals per number of susceptibles (rows)
 
+  # Create an empty data matrix to fill in
+  # I will fill the table column by column (meaning for each number of susceptibles s = 1, ..., n_sizes)
+  D_sim = matrix(0, nrow = nrow(D_obs), ncol = ncol(D_obs))
+
+  # For number of susceptibles per household s = 1, ..., n_sizes
+  for (s_idx in seq_len(n_sizes)) {
+    s = s_idx                        # number of susceptibles in the household
+    n_households_s = sum(D_obs[, s_idx]) # number of households with s susceptibles
+    
+    if (n_households_s == 0) next # skip if no households having s susceptibles
+
+    # Probabilities for j = 0,...,s w_js function 
+    j_range = 0:s  # possible number of infected individuals in the household with s susceptibles
+    p_js = sapply(j_range, function(j) w_js(j, s, q_c, q_h)) # distribution of having j infected out of s susceptibles
+    
+    
+    # numerically robust clipping: ( I encounted some negative probabilities due to numerical errors)
+    p_js[p_js < 0] = 0
+    total = sum(p_js)
+    if (total <= 0) {
+      stop("All probabilities zero or negative for s = ", s,
+           " with qc = ", q_c, ", qh = ", q_h)
+    }
+    p_js = p_js / total
+
+    # Make sure that p_js is positive and sums to 1
+    if (any(p_js < 0) || abs(sum(p_js) - 1) > 1e-8) {
+      stop("Invalid probability distribution p_js")
+    }
+
+    # Sample with replacement according to p_js the number of infected individuals for n_households_s households
+    samples = sample(j_range, size = n_households_s, replace = TRUE, prob = p_js)
+  
+    
+    # Count how many households ended up with j infections (from 0 to max_j)
+    counts = table(factor(samples, levels = 0:max_j))
+
+    D_sim[, s_idx] = as.numeric(counts) # fill the matrix
+
+  
+  }
+  return(D_sim)
+}
 ```
+
+Next, I will simulate outbreaks under a given model m and parameter vector theta.
+```{r simulate-data-function, include=TRUE}
+# m = 1: 2 parameters (qc, qh) shared
+# m = 2: 4 parameters (qc1, qh1, qc2, qh2) or 3 parameters (qc1, qc2, qh) for table 3
+simulate_data = function(theta, m, D0, n_params_by_model) {
+  if (n_params_by_model[[length(n_params_by_model)]] == 4) {
+    if (m == 1) {
+      q_c = theta[1]; q_h = theta[2]
+      D1_s = simulate_outbreak(q_c, q_h, D0$D1)
+      D2_s = simulate_outbreak(q_c, q_h, D0$D2)
+    } else if (m == 2) {
+      q_c1 = theta[1]; q_h1 = theta[2]
+      q_c2 = theta[3]; q_h2 = theta[4]
+      D1_s = simulate_outbreak(q_c1, q_h1, D0$D1)
+      D2_s = simulate_outbreak(q_c2, q_h2, D0$D2)
+    }
+  } else if (n_params_by_model[[length(n_params_by_model)]] == 3) {
+    if (m == 1) {
+      q_c = theta[1]; q_h = theta[2]
+      D1_s = simulate_outbreak(q_c, q_h, D0$D1)
+      D2_s = simulate_outbreak(q_c, q_h, D0$D2)
+    } else if (m == 2) {
+      q_c1 = theta[1]; q_c2 = theta[2]; q_h  = theta[3]
+      D1_s = simulate_outbreak(q_c1, q_h, D0$D1)
+      D2_s = simulate_outbreak(q_c2, q_h, D0$D2)
+    }
+  }
+  
+  return(list(D1 = D1_s, D2 = D2_s))
+}
+```
+
+
 
 # 3. Setup for ABC-SMC algorithm
 ## Model and prior setup
-### Constants
-```{r model-setup, include=FALSE}
-
-# Number of candidate models M = 2 
-# ------------------------------------
-## For table 2 : we compared between 2 vs 4 parameters
-## For table 3, we compared between 2 vs 3 parameters
-M = 2 # since we compare between 2 models only
-
-# ===================================================
-# Model 1 = 2 parameters (shared qc, qh)
-# Model 2 = 4 parameters (qc1, qh1, qc2, qh2)
-# Model 3 = 3 parameters (qc1, qc2, qh)
-n_params_by_model_t2 = c("1" = 2, "2" = 4)
-n_params_by_model_t3 = c("1" = 2, "2" = 3)
-```
 
 ### Prior distributionns
-```{r priors-setup, include=FALSE}
+```{r priors-setup, include=TRUE}
 # Prior for models
 # here we consider only 2 models (M = 2)
 prior_model = function(M) {
@@ -191,10 +290,11 @@ prior_theta_parameters = function(m, n_params_by_model) {
 ```
 
 ## Helper functions : pertubation kernels
-In the paper, the authors used a uniform perturbation kernel for parameters.
+In the paper, the authors used a uniform perturbation kernel for parameters KPt. Here, I will call it as pertub\_theta. 
+
 The kernel is centered at the previous particle, and the scale is set using the previous particles for the same model.
 
-```{r pertubation-kernels, include=FALSE}
+```{r pertubation-kernels, include=TRUE}
 # Similar to the paper : KPt 
 
 # theta_mat_model: matrix of particles and for T populations (N x T)
@@ -205,50 +305,49 @@ The kernel is centered at the previous particle, and the scale is set using the 
 
 # theta_star: vector (length d) = centre of the kernel (ancestor)
 # theta_prev_mat_model: matrix of previous thetas for this model, N_model x d
-perturb_theta <- function(theta_star, theta_prev_mat_model) {
-  d <- length(theta_star)
-  if (nrow(theta_prev_mat_model) == 0) {
-    stop("No previous particles for this model")
-  }
 
-  # σ_k = 0.5 * (max - min) for each parameter coordinate k
+perturb_theta = function(theta_star, theta_prev_mat_model) {
+  d = length(theta_star)
   sigma = 0.5 * (apply(theta_prev_mat_model, 2, max) -
                   apply(theta_prev_mat_model, 2, min))
-  sigma[sigma == 0] = 0.1  # avoid zero-width kernels
-
-  # θ_new = θ_star + U(-σ_k, σ_k) component-wise
-  theta_new <- theta_star + runif(d, -sigma, sigma)
-
-  # keep parameters inside [0,1] (matches Uniform(0,1) prior support)
-  theta_new[theta_new < 0] = 0
-  theta_new[theta_new > 1] = 1
-
-  theta_new
+  sigma[sigma == 0] = 0.1
+  theta_new = numeric(d)
+  for (k in seq_len(d)) {
+    a = max(0, theta_star[k] - sigma[k])
+    b = min(1, theta_star[k] + sigma[k])
+    theta_new[k] = runif(1, a, b)
+    }
+  return (theta_new)
 }
+
 
 
 
 # Density of the kernel at theta_new given centre theta_prev.
+
 kernel_theta_density = function(theta_new, theta_prev, theta_prev_mat_model) {
   d = length(theta_prev)
-  
   sigma = 0.5 * (apply(theta_prev_mat_model, 2, max) -
                   apply(theta_prev_mat_model, 2, min))
   sigma[sigma == 0] = 0.1
+
   dens = 1
   for (p in seq_len(d)) {
-    if (abs(theta_new[p] - theta_prev[p]) > sigma[p]) {
-      return(0) # this is outside the support of the uniform kernel
+    a = max(0, theta_prev[p] - sigma[p])
+    b = min(1, theta_prev[p] + sigma[p])
+    if (theta_new[p] < a || theta_new[p] > b) {
+      return(0)
     } else {
-      dens = dens * (1 / (2 * sigma[p]))
+      dens = dens * (1 / (b - a))   # truncated uniform on [a,b]
     }
   }
-  return(dens)
+  dens
 }
+
 ```
 
 
-```{r abc-smc-function, include=FALSE}
+```{r abc-smc-function, include=TRUE}
 abc_smc_influenza = function(D0,
                               epsilon_schedule,
                               n_params_by_model,
@@ -290,7 +389,11 @@ abc_smc_influenza = function(D0,
 
   ## ----------------- t >= 2: SMC steps -----------------
   if (T_pop >= 2) {
+
     for (t in 2:T_pop) {
+      print(paste("Generating population", t, "of", T_pop))
+
+   
       # next population
       epsilon_t = epsilon_schedule[t]
 
@@ -298,6 +401,11 @@ abc_smc_influenza = function(D0,
       theta_prev_mat = thetas_list[[t - 1]]   # vector of length N x max_par     
       model_prev     = models_mat[, t - 1] # vector of length N
       w_prev         = weights_mat[, t - 1] # vector of length N
+
+      # In case numerical issues give you total weight:
+      if (sum(w_prev) <= 0) {
+        next
+      }
 
       # even if we have different number of parameters per model,
       # we store all particles in a matrix of size N x max_par, padding with NAs 
@@ -308,7 +416,7 @@ abc_smc_influenza = function(D0,
 
       # Loop over particles
       for (i in seq_len(N_particles)) {
-    
+        # print(paste("Generating particle", i, "of", N_particles, "for population", t))
         repeat {
           # From the previous population, we have a sample of (model, theta) particles with weights.
           # We will sample from these to generate new particles for the current population.
@@ -316,29 +424,54 @@ abc_smc_influenza = function(D0,
 
           # 1/ Choose an ancestor index across all models
           ancestor_idx = sample(seq_len(N_particles), size = 1, prob = w_prev)
-          m_star       = model_prev[ancestor_idx]
+          # print(paste("ancestor_idx", ancestor_idx, "here!"))
+          m_prev_star  = model_prev[ancestor_idx]
+
+          # 1b/ Propose new model using kmt
+          if (runif(1) < 0.7) {
+            m_star = m_prev_star
+          } else {
+            # with only two models, just flip
+            m_star = ifelse(m_prev_star == 1, 2, 1)
+          }
+
 
           # 2/ Work only with previous particles of this model
           idx_m        = which(model_prev == m_star)
+
+          if (length(idx_m) == 0) {
+            next  # go back to the start of repeat{}
+          }
+
           d_m          = n_params_by_model[as.character(m_star)]
           theta_prev_m = theta_prev_mat[idx_m, 1:d_m, drop = FALSE]
           w_prev_m     = w_prev[idx_m]
 
+          if (sum(w_prev_m) <= 0 || any(!is.finite(w_prev_m))) {
+            next
+          }
+
           # 3/ Choose which theta to perturb within this model
           j_idx        = sample(seq_along(idx_m), size = 1, prob = w_prev_m / sum(w_prev_m))
+          # print(paste("j_idx", j_idx, "here!"))
           theta_center = theta_prev_m[j_idx, ]
 
           # 4) Perturb parameters
           theta_st = perturb_theta(theta_center, theta_prev_m)
 
+          
+
           # Simulate dataset and compute distance
           D_star = simulate_data(theta_st, m_star, D0, n_params_by_model)
+          # print("Here!")
+
+
+          # print("Data simulated.")
           d_val  = distance(D0, D_star)
           
 
 
           if (d_val <= epsilon_t) {
-           
             model_t[i] = m_star
 
             theta_full = rep(NA_real_, max_par)
@@ -372,6 +505,8 @@ abc_smc_influenza = function(D0,
         # Prior on m and theta|m are uniform on [0,1] so numerator is constant
         w_t[i] = ifelse(denom > 0, 1 / denom, 0)
       } # end i particle loop
+      
+  
     
 
       # normalise weights
@@ -380,7 +515,9 @@ abc_smc_influenza = function(D0,
       models_mat[, t]  = model_t
       weights_mat[, t] = w_t
       thetas_list[[t]] = theta_mat_t
+
     } # end t population loop
+    # print(".......................................")
   }
 
   return(list(
@@ -393,212 +530,158 @@ abc_smc_influenza = function(D0,
 
 ```
 
-```{r run-abc-smc-table2, include=FALSE}
-
+```{r run-abc-smc-table2, include=TRUE}
+# 8.a Supplementary Table 2
+# 
 D0_suppl2 = list(
   D1 = as.matrix(suppl2_7778),
   D2 = as.matrix(suppl2_8081)
 )
-
-epsilon_t = tolerance.sched.t2  # schedule for table 2
-
-set.seed(123)
+epsilon_t = tolerance.sched.t2 # schedule for table 2
 res_suppl2 = abc_smc_influenza(
   D0              = D0_suppl2,
   epsilon_schedule = epsilon_t,
   N_particles      = N,
   M_models         = M,
-  n_params_by_model = n_params_by_model_suppl2
+  n_params_by_model = n_params_by_model_t2
 )
 
-# Posterior model probabilities in the last population:
-t_last = length(epsilon_t)
-post_model_probs = tapply(res_suppl2$weights[, t_last],
-                           res_suppl2$models[, t_last],
-                           sum)
-post_model_probs = post_model_probs / sum(post_model_probs)
-post_model_probs
-
+# 8.b Supplementary Table 3
+D0_suppl3 = list(
+  D1 = as.matrix(suppl3_7576),
+  D2 = as.matrix(suppl3_7879)
+)
+epsilon_t3 = tolerance.sched.t3 # schedule for table 3
+res_suppl3 = abc_smc_influenza(
+  D0              = D0_suppl3,
+  epsilon_schedule = epsilon_t3,
+  N_particles      = N,
+  M_models         = M,
+  n_params_by_model = n_params_by_model_t3
+)
 ```
 
-```{r summary-utilities, include=FALSE}
-# Extract posterior particles at population t
-get_posterior_particles = function(res, t = length(res$epsilon)) {
-  theta_mat = res$thetas[[t]]
-  colnames(theta_mat) = paste0("theta", seq_len(ncol(theta_mat)))
-  data.frame(
-    model  = res$models[, t],
-    weight = res$weights[, t],
-    theta_mat
-  )
-}
 
-# Attach parameter names for the Supplementary Table 2 setting:
-# model 1: shared q_c, q_h
-# model 2: q_c1, q_h1, q_c2, q_h2
-label_parameters_suppl2 = function(df) {
-  df$q_c_shared = ifelse(df$model == 1, df$theta1, NA)
-  df$q_h_shared = ifelse(df$model == 1, df$theta2, NA)
-  df$q_c1       = ifelse(df$model == 2, df$theta1, NA)
-  df$q_h1       = ifelse(df$model == 2, df$theta2, NA)
-  df$q_c2       = ifelse(df$model == 2, df$theta3, NA)
-  df$q_h2       = ifelse(df$model == 2, df$theta4, NA)
-  df
-}
+# 4. Results and analysis
+## Reploting figures 3a,b,c,d from the paper
+```{r plot-results, include=TRUE}
+library(ggplot2)
 
-# Posterior model probabilities at population t
-posterior_model_probs_fun = function(res, t = length(res$epsilon)) {
-  df = data.frame(
-    model  = res$models[, t],
-    weight = res$weights[, t]
-  )
-  agg = aggregate(weight ~ model, data = df, FUN = sum)
-  names(agg)[names(agg) == "weight"] = "prob"
-  agg$prob = agg$prob / sum(agg$prob)
-  agg
-}
+# Supplementary table 2
+# Count the number of types of models in total
+df_count = as.data.frame(table(res_suppl2$models))
 
-# Weighted quantiles (for credible intervals)
-weighted_quantile = function(x, w, probs = c(0.025, 0.5, 0.975)) {
-  ord = order(x)
-  x = x[ord]; w = w[ord]
-  w = w / sum(w)
-  cw = cumsum(w)
-  sapply(probs, function(p) {
-    idx = which(cw >= p)[1]
-    x[idx]
-  })
-}
-```
+# Normalise the counts to get frequencies
+df_count$Var1 = paste("Model", df_count$Var1)
+df_count$Freq = df_count$Freq / sum(df_count$Freq)
 
-```{r summary-utilities-helpers, include=FALSE}
-summarise_param_suppl2 = function(df, param, model_value) {
-  sub = subset(df, model == model_value & !is.na(.data[[param]]))
-  x = sub[[param]]
-  w = sub$weight
-  c(
-    mean = sum(x * w) / sum(w),
-    weighted_quantile(x, w)
-  )
-}
-```
+# Rename columns
+colnames(df_count) = c("Model", "P(model | data)")
 
-## 3. Summaries for Supplementary Table 2 (for Fig. 3a descriptive stats)
+# Recreate figure 3.a using frequency count
+fig3a = ggplot(data = df_count, aes(x = Model, y = `P(model | data)`, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Figure 3.a: Model Selection Results for Influenza A - 1977-1978 & 1980-1981",
+       x = "Model",
+       y = "Approximation of P(model | data)") +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.1)) +
+  scale_fill_manual(values = c("Model 1" = "skyblue", "Model 2" = "salmon")) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+print(fig3a)
 
 
-```{r summarise-table2, echo=TRUE}
+# Extract particles for Model 2 where we have 4 parameters
 t_last = length(res_suppl2$epsilon)
 
-# Posterior particles with named parameters
-post_df_suppl2 = get_posterior_particles(res_suppl2, t = t_last)
-post_df_suppl2 = label_parameters_suppl2(post_df_suppl2)
+theta_last  = res_suppl2$thetas[[t_last]]          # N x 4
+model_last  = res_suppl2$models[, t_last]          # length N
+weight_last = res_suppl2$weights[, t_last]         # length N
 
-# Posterior model probabilities (this is Fig. 3b numerically)
-posterior_model_probs_fun(res_suppl2)
+# keep only model 2 (4-parameter model)
+idx_m2  = which(model_last == 2)
+theta_m2  = theta_last[idx_m2, 1:4, drop = FALSE]
 
-# Summaries for the four-parameter model (model 2)
-post4 = subset(post_df_suppl2, model == 2)
+qc_1 = theta_m2[, 1]   # q_c1
+qh_1 = theta_m2[, 2]   # q_h1
+qc_2 = theta_m2[, 3]   # q_c2
+qh_2 = theta_m2[, 4]   # q_h2
 
-params = c("q_c1", "q_h1", "q_c2", "q_h2")
-summaries = lapply(params, function(p) {
-  x = post4[[p]]
-  w = post4$weight
-  c(mean = sum(x * w) / sum(w),
-    weighted_quantile(x, w))
-})
-names(summaries) = params
-summaries
+df_params_model2 = data.frame(qc_1, qh_1, qc_2, qh_2)
+
+fig3b = ggplot() +
+  geom_point(data = df_params_model2,
+             aes(x = qh_1, y = qc_1),
+             alpha = 0.5, colour = "blue") +
+  geom_point(data = df_params_model2,
+             aes(x = qh_2, y = qc_2),
+             alpha = 0.5, colour = "red") +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(title = "Figure 3.b: Pairwise Scatter of Parameters, Model 2 (population 8)",
+       x = "q_h",
+       y = "q_c") +
+   theme(aspect.ratio=1)
+print(fig3b)
+
+
+# Supplementary table 3
+
+t_last3 = length(res_suppl3$epsilon)
+
+
+# Count the number of types of models in total
+df_count3 = as.data.frame(table(res_suppl3$models))
+# Normalise the counts to get frequencies
+df_count3$Var1 = paste("Model", df_count3$Var1)
+df_count3$Freq = df_count3$Freq / sum(df_count3$Freq)
+# Rename columns
+colnames(df_count3) = c("Model", "P(model | data)")
+# Recreate figure 3.b using frequency count
+fig3c = ggplot(data = df_count3, aes(x = Model, y = `P(model | data)`, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Figure 3.c: Model Selection Results for Influenza B - 1975-1976 & 1978-1979",
+       x = "Model",
+       y = "Approximation of P(model | data)") +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.1)) +
+  scale_fill_manual(values = c("Model 1" = "lightgreen", "Model 2" = "orange")) +
+  theme_minimal() +
+  theme(legend.position = "none")
+print(fig3c)
+
+# Extract particles for Model 2 where we have 3 parameters
+theta_last3  = res_suppl3$thetas[[t_last3]]          # N x 3
+model_last3  = res_suppl3$models[, t_last3]          # length
+weight_last3 = res_suppl3$weights[, t_last3]         # length N
+# keep only model 2 (3-parameter model)
+idx_m2_3  = which(model_last3 == 2)
+theta_m2_3  = theta_last3[idx_m2_3, 1:3, drop = FALSE]
+qc_1_3 = theta_m2_3[, 1]   # q_c1
+qc_2_3 = theta_m2_3[, 2]   # q_c2
+qh_3   = theta_m2_3[, 3]   # q_h
+df_params_model2_3 = data.frame(qc_1_3, qc_2_3, qh_3)
+fig3d = ggplot() +
+  geom_point(data = df_params_model2_3,
+             aes(x = qh_3, y = qc_1_3),
+             alpha = 0.5, colour = "purple") +
+  geom_point(data = df_params_model2_3,
+             aes(x = qh_3, y = qc_2_3),
+             alpha = 0.5, colour = "brown") +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(title = "Figure 3.d: Pairwise Scatter of Parameters, Model 2 (population 7)",
+       x = "q_h",
+       y = "q_c") +
+   theme(aspect.ratio=1)
+print(fig3d)
+
 ```
 
+# 5. Discussion
 
-```{r load-plot-libs, message=FALSE}
-library(ggplot2)
-library(dplyr)
-library(tidyr)
-```
+In this project, I replicated the ABC-SMC method  to compare different models and test it on flu outbreak data from households (from a 2009 study by Toni and colleagues). The method looks at two key numbers: q_c (chance of avoiding flu from the community) and q_h (chance of avoiding flu from household members), and it used the final number of sick people in each household size to compare models (shared or non shared parameters). \\
 
+For the influenza A data (Table 2 in the supplement), my results match the main finding from the original paper: a more complex model with four parameters (different q_c and q_h values for each of the two A outbreaks) works better than a simpler two-parameter model. This makes sense because the 1977-78 and 1980-81 flu A outbreaks behaved differently, so using separate values for each outbreak gives better results.
 
-```{r fig3a-replot, fig.height=4, fig.width=6}
-# Restrict to four-parameter model (model 2)
-post4 = subset(post_df_suppl2, model == 2)
+For the influenza B/A data (Table 3 in the supplement), my results didn't fully match the published Figure 3c. The original study found no clear winner between two models. But my version shows a stronger preference for model 2 over the other. I think this difference came from my setup (different random seeds, some clipping values of the uniformdistribution). These choices can affect the final model comparisons, especially with small datasets like Table 3.
 
-# Resample from weighted particles to get an unweighted sample
-set.seed(123)
-n_sample = 10
-idx = sample(seq_len(nrow(post4)), size = n_sample,
-              replace = TRUE, prob = post4$weight)
-samp4 = post4[idx, ]
-
-# Long format: q_c and q_h, for each outbreak
-qc_long = rbind(
-  data.frame(outbreak = "1977-1978", param = "q_c", value = samp4$q_c1),
-  data.frame(outbreak = "1980-1981", param = "q_c", value = samp4$q_c2)
-)
-
-qh_long = rbind(
-  data.frame(outbreak = "1977-1978", param = "q_h", value = samp4$q_h1),
-  data.frame(outbreak = "1980-1981", param = "q_h", value = samp4$q_h2)
-)
-
-# Posterior of q_c (panel corresponding to Fig. 3a, first row)
-p_qc = ggplot(qc_long, aes(x = value, colour = outbreak, fill = outbreak)) +
-  geom_density(alpha = 0.2) +
-  labs(x = expression(q[c]), y = "Posterior density",
-       title = "Posterior of q[c] (four-parameter model, Supplementary Table 2)") +
-  xlim(0, 1)
-
-# Posterior of q_h (panel corresponding to Fig. 3a, second row)
-p_qh = ggplot(qh_long, aes(x = value, colour = outbreak, fill = outbreak)) +
-  geom_density(alpha = 0.2) +
-  labs(x = expression(q[h]), y = "Posterior density",
-       title = "Posterior of q[h] (four-parameter model, Supplementary Table 2)") +
-  xlim(0, 1)
-
-
-
-
-
-```
-
-## 5. Reproducing Fig. 3b (posterior model probabilities \(P(m \mid D_0)\))
-
-```{r fig3b-replot, fig.height=3, fig.width=5}
-post_model_probs2 = posterior_model_probs_fun(res_suppl2)
-
-post_model_probs2$model = factor(
-  post_model_probs2$model,
-  levels = c(1, 2),
-  labels = c("Model 1 (2 parameters)", "Model 2 (4 parameters)")
-)
-
-ggplot(post_model_probs2, aes(x = model, y = prob)) +
-  geom_col(width = 0.5) +
-  ylim(0, 1) +
-  labs(x = "Model",
-       y = expression(P(m ~ "|" ~ D[0])),
-       title = "Posterior model probabilities (Supplementary Table 2)")
-```
-
-This is the analogue of Fig. 3b: a bar for the 2-parameter model vs the 4-parameter model. Toni & Stumpf report \(\Pr(m=1 \mid D_0) \approx 0.98\) as a median over 10 runs; your single run will be in that neighbourhood but not exactly identical.   
-
-
-
-## 6. How to extend to Fig. 3c-d (Seattle outbreaks)
-
-Once you:
-
-- run an analogous ABC-SMC for **Supplementary Table 3** (either:
-  - four-parameter model only, to get Fig. 3c, and
-  - model 1 = three parameters \((q_{c1}, q_{c2}, q_h)\) vs model 2 = four parameters, for Fig. 3d),   
-
-you can reuse **exactly** the same utilities:
-
-- `get_posterior_particles()` → label parameters appropriately (you'll want a `label_parameters_suppl3()` for the 3-parameter/4-parameter semantics).
-- `posterior_model_probs_fun()` → bar plot for Fig. 3d.
-- The density plotting pattern from `fig3a-replot` → two density panels for \(q_c\) and \(q_h\) for the four-parameter model (Fig. 3c).
-
-But for the current code you pasted (set up for Suppl. Table 2, 2- vs 4-parameter models), the chunks above give you:
-
-- numerical posterior summaries,  
-- a clean re-plot of Fig. 3a (for \(q_c\) and \(q_h\)), and  
-- a re-plot of Fig. 3b (posterior model probs).
+Even though my Figure 3c results didn't match perfectly, this work shows that the ABC-SMC method works well for comparing models when we can only run simulations and can't calculate probabilities directly. It also shows that AB-SMC results depend heavily on setup choices (especially the tolerance levels, the choice of priors and the disease models themselves). I think it would be beneficial next to explore more different tolerance settings more carefully and run the analysis multiple times with different random starting points. 

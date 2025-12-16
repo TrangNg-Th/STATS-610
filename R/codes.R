@@ -1,10 +1,7 @@
 # =============================================================================
 # STATS 610 Final Project - Statistical Replication Analysis
 # =============================================================================
-# Description: This script replicates key statistical results from the paper
-#              [Paper Title - To be filled in when supplementary is added]
-# Author: [Student Name]
-# Date: [Date]
+
 # =============================================================================
 
 
